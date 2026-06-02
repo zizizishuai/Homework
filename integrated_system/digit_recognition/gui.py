@@ -165,6 +165,9 @@ class MainWindow(QMainWindow):
         self.model_path_label = QLabel("模型文件: 未加载")
         self.model_path_label.setWordWrap(True)
         model_layout.addWidget(self.model_path_label)
+        
+        model_group.setLayout(model_layout)
+        left_panel.addWidget(model_group)
 
         left_panel.addStretch()
         layout.addLayout(left_panel, 1)
