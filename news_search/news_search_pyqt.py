@@ -21,9 +21,13 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont
 
-# 导入本地模块
-from .config import Config
-from .logger import logger
+# 导入本地模块（支持相对导入和直接运行）
+try:
+    from .config import Config
+    from .logger import logger
+except ImportError:
+    from config import Config
+    from logger import logger
 
 
 class NewsCrawler:
@@ -37,7 +41,6 @@ class NewsCrawler:
     def search_news(self, name, page=1, site_filter="", timeout=Config.REQUEST_TIMEOUT):
         """搜索指定姓名的新闻"""
         query = f"{name} 新闻".strip()
-        search_type = "news"
 
         headers = {
             "User-Agent": self.ua.random,
@@ -51,10 +54,9 @@ class NewsCrawler:
             "tn": "news",
             "pn": (page - 1) * 10,
             "rn": 10,
-            "ie": "utf-8"
+            "ie": "utf-8",
+            "cl": 2
         }
-        if search_type == "news":
-            params["cl"] = 2
         if site_filter:
             params["site"] = site_filter
 
@@ -105,7 +107,6 @@ class NewsCrawler:
 
                 name_count = title.count(name) + summary.count(name)
 
-                # 只保留姓名出现次数大于0的新闻
                 if name_count > 0:
                     news_list.append({
                         "title": title,
@@ -352,13 +353,18 @@ class NewsSearchWidget(QWidget):
         self.open_link_btn.clicked.connect(self.open_selected_link)
         page_layout.addWidget(self.open_link_btn)
 
+        # 详情面板切换按钮
+        self.toggle_detail_btn = QPushButton("隐藏详情")
+        self.toggle_detail_btn.clicked.connect(self.toggle_detail_panel)
+        page_layout.addWidget(self.toggle_detail_btn)
+
         page_layout.addStretch()
         layout.addLayout(page_layout)
 
         # 结果表格和详情
         splitter = QSplitter(Qt.Horizontal)
         self.splitter = splitter
-        
+
         self.news_table = QTableWidget()
         self.news_table.setColumnCount(4)
         self.news_table.setHorizontalHeaderLabels(["标题", "来源", "发布时间", "姓名出现次数"])
@@ -380,11 +386,6 @@ class NewsSearchWidget(QWidget):
 
         splitter.setSizes([2, 1])
         layout.addWidget(splitter, 1)
-
-        # 详情面板切换按钮
-        self.toggle_detail_btn = QPushButton("隐藏详情")
-        self.toggle_detail_btn.clicked.connect(self.toggle_detail_panel)
-        page_layout.addWidget(self.toggle_detail_btn)
 
     def setup_stats_tab(self):
         """设置统计分析标签页"""
@@ -495,7 +496,6 @@ class NewsSearchWidget(QWidget):
         self.source_combo.addItem("全部来源")
         for source in sorted(sources):
             self.source_combo.addItem(source)
-        # 尝试恢复之前的选择
         index = self.source_combo.findText(current_text)
         if index >= 0:
             self.source_combo.setCurrentIndex(index)
@@ -510,12 +510,10 @@ class NewsSearchWidget(QWidget):
         """应用筛选和排序"""
         filtered = list(self.current_news)
         
-        # 来源筛选
         source = self.source_combo.currentText()
         if source and source != "全部来源":
             filtered = [n for n in filtered if n.get("source") == source]
         
-        # 排序
         sort_option = self.sort_combo.currentText()
         if sort_option == "姓名出现次数降序":
             filtered.sort(key=lambda x: x.get("name_count", 0), reverse=True)
@@ -562,28 +560,24 @@ class NewsSearchWidget(QWidget):
         self.apply_filter_sort()
         total_count = len(self.filtered_news)
         total_pages = max(1, (total_count + self.items_per_page - 1) // self.items_per_page)
-        
+
         if self.current_page >= total_pages:
             self.current_page = max(0, total_pages - 1)
-        
+
         start = self.current_page * self.items_per_page
         end = start + self.items_per_page
         page_news = self.filtered_news[start:end]
-        
+
         self.news_table.setRowCount(len(page_news))
         for row, news in enumerate(page_news):
             self.news_table.setItem(row, 0, QTableWidgetItem(news.get("title", "")))
             self.news_table.setItem(row, 1, QTableWidgetItem(news.get("source", "")))
             self.news_table.setItem(row, 2, QTableWidgetItem(news.get("time", "")))
             self.news_table.setItem(row, 3, QTableWidgetItem(str(news.get("name_count", 0))))
-        
-        # 更新分页控件
+
         self.page_info_label.setText(f"当前页 {self.current_page + 1} / {total_pages}")
         self.prev_btn.setEnabled(self.current_page > 0)
         self.next_btn.setEnabled(self.current_page < total_pages - 1)
-        
-        if total_count > 0:
-            self.status_label.setText(f"共找到 {total_count} 条关于 '{name}' 的新闻")
 
     def goto_prev_page(self):
         """上一页"""
@@ -605,7 +599,7 @@ class NewsSearchWidget(QWidget):
         if not selected_rows:
             self.detail_text.clear()
             return
-        
+
         row = selected_rows[0].row()
         start = self.current_page * self.items_per_page
         if start + row < len(self.filtered_news):
@@ -638,21 +632,35 @@ class NewsSearchWidget(QWidget):
         selected_rows = self.news_table.selectionModel().selectedRows()
         if selected_rows:
             self.open_news_link(selected_rows[0].row(), 0)
+        else:
+            QMessageBox.information(self, "提示", "请先选择一条新闻")
+
+    def toggle_detail_panel(self):
+        """切换详情面板显示"""
+        if self.detail_text_visible:
+            self.detail_text.hide()
+            self.detail_text_visible = False
+            self.toggle_detail_btn.setText("显示详情")
+        else:
+            self.detail_text.show()
+            self.detail_text_visible = True
+            self.toggle_detail_btn.setText("隐藏详情")
 
     def export_csv(self):
         """导出CSV"""
         if not self.filtered_news:
             QMessageBox.warning(self, "提示", "当前没有可导出的新闻结果")
             return
-        
+
         filename, _ = QFileDialog.getSaveFileName(
-            self, "保存CSV", "", "CSV文件 (*.csv);;所有文件 (*.*)"
+            self, "保存CSV", f"新闻搜索结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", 
+            "CSV文件 (*.csv);;所有文件 (*.*)"
         )
         if filename:
             try:
                 df = pd.DataFrame(self.filtered_news)
                 df.to_csv(filename, index=False, encoding="utf-8-sig")
-                QMessageBox.information(self, "成功", f"已导出 {len(self.filtered_news)} 条新闻到 {filename}")
+                QMessageBox.information(self, "成功", f"已导出 {len(self.filtered_news)} 条新闻到\n{filename}")
                 logger.info(f"导出CSV成功: {filename}, {len(self.filtered_news)} 条")
             except Exception as e:
                 logger.error(f"导出CSV失败: {str(e)}")
@@ -661,42 +669,38 @@ class NewsSearchWidget(QWidget):
     def update_statistics(self, name):
         """更新统计图表"""
         if not self.current_news:
-            self.stats_info_label.setText("暂无统计数据")
+            self.stats_info_label.setText("暂无统计数据 - 请先进行搜索")
             self.figure.clear()
             self.canvas.draw()
             return
-        
+
         self.figure.clear()
-        
+
         df = pd.DataFrame(self.current_news)
         df["source"] = df["source"].fillna("未知")
         df["name_count"] = df["name_count"].fillna(0).astype(int)
         df["summary"] = df["summary"].fillna("")
         df["time"] = df["time"].fillna("")
-        
-        # 创建子图
+
         gs = self.figure.add_gridspec(2, 2)
-        
-        # 来源分布
+
         ax1 = self.figure.add_subplot(gs[0, 0])
         source_counts = df["source"].value_counts().head(10)
         ax1.bar(source_counts.index, source_counts.values, color="skyblue")
-        ax1.set_title("新闻来源分布(Top10)")
+        ax1.set_title("新闻来源分布(Top10)", fontsize=12)
         ax1.set_xlabel("来源")
         ax1.set_ylabel("新闻数量")
         ax1.tick_params(axis="x", rotation=45)
-        
-        # 姓名出现次数分布
+
         ax2 = self.figure.add_subplot(gs[0, 1])
         name_count_max = max(1, int(df["name_count"].max()))
         ax2.hist(df["name_count"], bins=range(0, name_count_max + 2, 1), color="lightgreen", edgecolor="black")
-        ax2.set_title("姓名出现次数分布")
+        ax2.set_title("姓名出现次数分布", fontsize=12)
         ax2.set_xlabel("出现次数")
         ax2.set_ylabel("新闻数量")
-        
-        # 时间分布
+
         ax3 = self.figure.add_subplot(gs[1, 0])
-        
+
         def extract_year_month(time_str):
             match = re.search(r"(\d{4})年(\d{1,2})月", time_str)
             if match:
@@ -707,35 +711,34 @@ class NewsSearchWidget(QWidget):
             if "前" in time_str or "小时" in time_str or "分钟" in time_str or "天" in time_str:
                 return "近期"
             return "未知"
-        
+
         df["year_month"] = df["time"].apply(extract_year_month)
         time_counts = df["year_month"].value_counts().sort_index()
         if not time_counts.empty:
             ax3.plot(time_counts.index, time_counts.values, marker="o", color="orange")
-            ax3.set_title("新闻发布时间分布")
+            ax3.set_title("新闻发布时间分布", fontsize=12)
             ax3.set_xlabel("时间")
             ax3.set_ylabel("新闻数量")
             ax3.tick_params(axis="x", rotation=45)
         else:
             ax3.text(0.5, 0.5, "无可用发布时间数据", ha="center", va="center", fontsize=12)
             ax3.set_axis_off()
-        
-        # 摘要长度与姓名出现次数关系
+
         ax4 = self.figure.add_subplot(gs[1, 1])
         df["summary_length"] = df["summary"].str.len()
         if df["summary_length"].sum() > 0:
             ax4.scatter(df["summary_length"], df["name_count"], alpha=0.6, color="purple")
-            ax4.set_title("摘要长度与姓名出现次数关系")
+            ax4.set_title("摘要长度与姓名出现次数关系", fontsize=12)
             ax4.set_xlabel("摘要长度(字符)")
             ax4.set_ylabel("姓名出现次数")
         else:
             ax4.text(0.5, 0.5, "无摘要长度数据", ha="center", va="center", fontsize=12)
             ax4.set_axis_off()
-        
+
         self.figure.suptitle(f"'{name}' 新闻统计分析", fontsize=16)
         self.figure.tight_layout()
         self.canvas.draw()
-        
+
         self.stats_info_label.setText(f"统计数据基于 {len(df)} 条新闻生成")
 
     def refresh_history(self):
@@ -749,7 +752,7 @@ class NewsSearchWidget(QWidget):
 
     def clear_history(self):
         """清空历史记录"""
-        if QMessageBox.question(self, "确认", "确定要清空所有搜索历史吗？", 
+        if QMessageBox.question(self, "确认", "确定要清空所有搜索历史吗？",
                                QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
             self.history_manager.clear_history()
             self.refresh_history()
